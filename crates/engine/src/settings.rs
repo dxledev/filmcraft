@@ -109,6 +109,11 @@ pub struct AppearancePrefs {
     /// "UI Scale": `auto` (default: the scale the operating system reports) or a fixed
     /// percentage of [`UI_SCALES`] (`100` = one point per physical pixel).
     pub ui_scale: String,
+    /// "Shell Theme": in Sync-with-system mode on a dark system, tint the dark theme with the
+    /// colours of the desktop shell's active theme. `auto` (default: whatever the shell applies,
+    /// dynamic or static) | `dynamic` (the wallpaper-generated palette) | `static` (the chosen
+    /// theme) | `off`.
+    pub shell_theme: String,
 }
 
 impl Default for AppearancePrefs {
@@ -122,6 +127,7 @@ impl Default for AppearancePrefs {
             accessible_contrast: false,
             highlight_color: DEFAULT_HIGHLIGHT.into(),
             ui_scale: "auto".into(),
+            shell_theme: "auto".into(),
         }
     }
 }
@@ -909,6 +915,7 @@ const BIN_OPEN: &[(&str, &str)] = &[("openInPlace", "Open in place"), ("openNewT
 const PROJECT_OPEN: &[(&str, &str)] = &[("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
 const THEMES: &[(&str, &str)] = &[("darkest", "Darkest"), ("dark", "Dark"), ("light", "Light")];
 pub const APPEARANCE_MODES: &[(&str, &str)] = &[("auto", "Sync with system"), ("dark", "Dark"), ("light", "Light")];
+pub const SHELL_THEMES: &[(&str, &str)] = &[("auto", "Follow the shell"), ("dynamic", "Dynamic palette"), ("static", "Static theme"), ("off", "Off")];
 pub const UI_SCALES: &[(&str, &str)] = &[
     ("auto", "Auto (system)"),
     ("75", "75%"),
@@ -1051,6 +1058,7 @@ static CATEGORIES: &[Category] = &[
             b("appearance.accessibleContrast", "Accessible color contrast", true),
             f("appearance.highlightColor", "Highlight Color", Kind::Color, true),
             f("appearance.uiScale", "UI Scale", Kind::Choice(UI_SCALES), true),
+            f("appearance.shellTheme", "Shell Theme", Kind::Choice(SHELL_THEMES), true),
         ],
     },
     Category {

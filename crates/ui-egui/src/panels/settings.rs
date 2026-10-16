@@ -1052,6 +1052,66 @@ mod tests {
         assert_eq!(app.tokens.kind, ThemeKind::Dark);
     }
 
+    /// Shell Theme tints the dark theme only while Appearance Mode follows a dark system, follows
+    /// the shell's palette as it changes, and leaves the stock colours with it off.
+    #[test]
+    fn shell_theme_tints_the_dark_theme_in_system_mode_only() {
+        use crate::shell_theme::{ShellPalette, ShellSource};
+        use std::sync::{Arc, Mutex};
+        let island = ShellPalette { background: [0x14, 0x15, 0x20], foreground: [0xe2, 0xc9, 0xb4], primary: [0x9b, 0xad, 0xd9] };
+        let firesky = ShellPalette { background: [0x0f; 3], foreground: [0xe0, 0xd8, 0xd0], primary: [0xe6, 0x6a, 0x4d] };
+        let ctx = egui::Context::default();
+        let mut app = FilmcraftApp::new(filmcraft_engine::Session::default());
+        // what the app shows without a shell palette: the theme with the default highlight applied
+        let highlight = filmcraft_engine::settings::parse_hex(settings::DEFAULT_HIGHLIGHT);
+        let stock = Tokens::for_kind(ThemeKind::Dark).with_appearance(highlight, false);
+        let palette = Arc::new(Mutex::new(Some(island)));
+        let read = palette.clone();
+        app.hooks.system_theme = Some(Box::new(|_| Some(egui::Theme::Dark)));
+        app.hooks.shell_palette = Some(Box::new(move |_, source| (source == ShellSource::Auto).then(|| *read.lock().unwrap()).flatten()));
+        let set = |app: &mut FilmcraftApp, key: &str, value: &str| {
+            app.session.execute("prefs.set", json!({"key": key, "value": value})).unwrap();
+        };
+        // a fixed mode keeps the stock colours
+        app.apply_prefs(&ctx);
+        assert_eq!(app.tokens, stock);
+        // Sync with system on a dark system: tinted, with the shell's primary as the accent
+        set(&mut app, "appearance.appearanceMode", "auto");
+        app.apply_prefs(&ctx);
+        assert_ne!(app.tokens.panel_bg, stock.panel_bg);
+        assert!(app.tokens.panel_bg.b() > app.tokens.panel_bg.r());
+        let blue_accent = app.tokens.accent;
+        // the shell switches theme while FilmCraft runs
+        *palette.lock().unwrap() = Some(firesky);
+        app.apply_prefs(&ctx);
+        assert!(app.tokens.panel_bg.r() > app.tokens.panel_bg.b());
+        assert_ne!(app.tokens.accent, blue_accent);
+        // no palette (or no host answer): stock again
+        *palette.lock().unwrap() = None;
+        app.apply_prefs(&ctx);
+        assert_eq!(app.tokens, stock);
+        *palette.lock().unwrap() = Some(island);
+        app.apply_prefs(&ctx);
+        assert_ne!(app.tokens, stock);
+        // a highlight colour of the user's own stays
+        set(&mut app, "appearance.highlightColor", "#12ab34");
+        app.apply_prefs(&ctx);
+        assert_eq!(app.tokens.accent, Color32::from_rgb(0x12, 0xab, 0x34));
+        set(&mut app, "appearance.highlightColor", filmcraft_engine::settings::DEFAULT_HIGHLIGHT);
+        // Shell Theme off, a bad value, and a light system all leave the stock colours
+        set(&mut app, "appearance.shellTheme", "off");
+        app.apply_prefs(&ctx);
+        assert_eq!(app.tokens, stock);
+        assert!(app.session.execute("prefs.set", json!({"key": "appearance.shellTheme", "value": "neon"})).is_err());
+        set(&mut app, "appearance.shellTheme", "auto");
+        app.apply_prefs(&ctx);
+        assert_ne!(app.tokens, stock);
+        app.hooks.system_theme = Some(Box::new(|_| Some(egui::Theme::Light)));
+        app.apply_prefs(&ctx);
+        assert_eq!(app.tokens.kind, ThemeKind::Light);
+        assert_eq!(app.tokens, Tokens::for_kind(ThemeKind::Light).with_appearance(highlight, false));
+    }
+
     #[test]
     fn diff_lists_changed_leaves() {
         let a = json!({"timeline": {"x": 1, "y": "a"}, "labels": {"colors": {"rose": {"name": "Rose"}}}});

@@ -143,6 +143,10 @@ pub struct Tokens {
     pub monitor_bg: Color32,
     pub timecode: Color32,
     pub danger: Color32,
+    /// Bin (folder) icons in the Project panel.
+    pub bin_color: Color32,
+    /// The tile behind a bin icon in the Project panel's icon view.
+    pub bin_tile_bg: Color32,
     pub radius: f32,
     pub radius_sm: f32,
     pub gap: f32,
@@ -236,6 +240,8 @@ impl Tokens {
             monitor_bg: Color32::from_rgb(0x1d, 0x1d, 0x1d),
             timecode: Color32::from_rgb(0x40, 0x96, 0xf3),
             danger: Color32::from_rgb(0xdc, 0x51, 0x3d),
+            bin_color: Color32::from_rgb(237, 150, 58),
+            bin_tile_bg: Color32::from_gray(26),
             radius: 0.0,
             radius_sm: 4.0,
             gap: 4.0,

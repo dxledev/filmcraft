@@ -53,6 +53,7 @@ pub mod perf;
 pub mod play_ahead;
 mod rtl;
 pub mod scrub;
+pub mod shell_theme;
 mod shuttle;
 pub mod source_playback;
 pub mod state;
@@ -167,6 +168,10 @@ pub struct HostHooks {
     /// whose Wayland compositor sends no theme to winit). Without it, or without an answer, Auto
     /// uses `egui::Context::system_theme`.
     pub system_theme: Option<SystemThemeFn>,
+    /// The palette of the desktop shell's theme (Settings ▸ Appearance ▸ Shell Theme), which tints
+    /// the dark theme when Appearance Mode follows the system. Without it, or without an answer,
+    /// the theme keeps its stock colours.
+    pub shell_palette: Option<ShellPaletteFn>,
     /// Files or an image on the system clipboard, for Paste in the Timeline and the Project panel
     /// (#611). Without it Paste only pastes clips copied in FilmCraft.
     pub clipboard_media: Option<Box<dyn FnMut() -> Option<ClipboardMedia>>>,
@@ -179,6 +184,9 @@ pub enum ClipboardMedia {
     /// An image (a screenshot, an image copied in a browser): 8-bit RGBA, row by row.
     Image { width: usize, height: usize, rgba: Vec<u8> },
 }
+
+/// Reads the shell's palette for a source; called every frame, so it must only copy a cached value.
+pub type ShellPaletteFn = Box<dyn Fn(&egui::Context, shell_theme::ShellSource) -> Option<shell_theme::ShellPalette>>;
 
 /// Reads the system appearance (Settings ▸ Appearance ▸ Appearance Mode ▸ Sync with system).
 pub type SystemThemeFn = Box<dyn Fn(&egui::Context) -> Option<egui::Theme>>;
@@ -375,6 +383,8 @@ pub struct FilmcraftApp {
     applied_prefs: Option<filmcraft_engine::autosave::Preferences>,
     /// Settings ▸ Appearance ▸ UI Scale last applied, with the system scale it was applied for.
     applied_ui_scale: Option<(Option<f32>, f32)>,
+    /// The shell palette the current tokens are tinted with.
+    applied_shell: Option<shell_theme::ShellPalette>,
     workspace_restored: bool,
     /// Window ▸ Workspaces: saved layouts ([`dock::WORKSPACES_FILE`] in the data directory).
     pub workspaces: dock::WorkspacePrefs,
@@ -594,6 +604,7 @@ impl FilmcraftApp {
             watched_render: None,
             applied_prefs: None,
             applied_ui_scale: None,
+            applied_shell: None,
             workspace_restored: false,
             workspaces,
             menu_workspaces: Default::default(),
@@ -636,7 +647,16 @@ impl FilmcraftApp {
     pub fn set_theme(&mut self, ctx: &egui::Context, k: ThemeKind) {
         let a = &self.session.prefs.appearance;
         let highlight = filmcraft_engine::settings::parse_hex(&a.highlight_color);
-        self.tokens = Tokens::for_kind(k).with_appearance(highlight, a.accessible_contrast);
+        let mut tokens = Tokens::for_kind(k).with_appearance(highlight, a.accessible_contrast);
+        // Shell Theme: only the dark themes while Appearance Mode follows the system. A highlight
+        // colour of the user's own keeps its place over the shell's primary.
+        let shell = self.shell_palette(ctx, k);
+        if let Some(p) = &shell {
+            let own_highlight = !a.highlight_color.eq_ignore_ascii_case(filmcraft_engine::settings::DEFAULT_HIGHLIGHT);
+            tokens = shell_theme::tint_tokens(tokens, p, !own_highlight);
+        }
+        self.applied_shell = shell;
+        self.tokens = tokens;
         theme::apply_visuals(ctx, &self.tokens);
         self.apply_tooltips(ctx);
         self.ui.dark = k != ThemeKind::Light;
@@ -652,6 +672,17 @@ impl FilmcraftApp {
     pub fn appearance_kind(&self, ctx: &egui::Context) -> ThemeKind {
         let light = self.system_theme(ctx).map(|t| t == egui::Theme::Light);
         ThemeKind::from_pref(self.session.prefs.appearance.shown_theme(light))
+    }
+
+    /// The shell palette that tints theme `k`: none for the light theme, for a fixed Appearance
+    /// Mode, with Shell Theme off, or when the host has none.
+    fn shell_palette(&self, ctx: &egui::Context, k: ThemeKind) -> Option<shell_theme::ShellPalette> {
+        let a = &self.session.prefs.appearance;
+        if k == ThemeKind::Light || a.appearance_mode != "auto" {
+            return None;
+        }
+        let source = shell_theme::ShellSource::from_pref(&a.shell_theme)?;
+        self.hooks.shell_palette.as_ref().and_then(|read| read(ctx, source))
     }
 
     fn apply_tooltips(&self, ctx: &egui::Context) {
@@ -686,7 +717,7 @@ impl FilmcraftApp {
         // changes as they happen (no polling) and wakes the UI only when the value changes.
         if self.applied_prefs.is_some() {
             let k = self.appearance_kind(ctx);
-            if k != self.tokens.kind {
+            if k != self.tokens.kind || self.shell_palette(ctx, k) != self.applied_shell {
                 self.set_theme(ctx, k);
             }
         }

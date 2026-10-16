@@ -15,7 +15,6 @@ use crate::panels::project::{Actions, Hover, Inst, View, commit_rename, font, op
 use crate::theme::Tokens;
 
 const OFFLINE: Color32 = Color32::from_rgb(0xe8, 0x5c, 0x5c);
-const BIN_COLOR: Color32 = Color32::from_rgb(237, 150, 58);
 /// Width of the label chip lead-in before the Name column.
 const LEAD: f32 = 26.0;
 
@@ -687,7 +686,7 @@ fn list_bin(app: &mut FilmcraftApp, ui: &mut egui::Ui, bin: &Bin, depth: usize, 
         let x = r.min.x + LEAD + depth as f32 * 14.0;
         let tri = Rect::from_center_size(pos2(x + 5.0, r.center().y), vec2(14.0, 14.0));
         icons::paint(ui.painter(), tri.shrink(2.0), if open { Icon::ChevronDown } else { Icon::ChevronRight }, t.text_dim);
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(x + 20.0, r.center().y), vec2(14.0, 14.0)), Icon::Folder, BIN_COLOR);
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(x + 20.0, r.center().y), vec2(14.0, 14.0)), Icon::Folder, app.tokens.bin_color);
         let name_r = Rect::from_min_max(pos2(x + 30.0, r.min.y + 2.0), pos2((r.min.x + LEAD + lc.cols[0].width - 4.0).max(x + 80.0), r.max.y - 2.0));
         if !rename_field(app, ui, name_r, None, Some(b.id.0), &v.prefix) {
             ui.painter().with_clip_rect(name_r).text(pos2(name_r.min.x + 2.0, r.center().y), Align2::LEFT_CENTER, &b.name, Tokens::ui(lc.font), t.text);
@@ -916,8 +915,8 @@ fn bin_card(app: &mut FilmcraftApp, ui: &mut egui::Ui, r: Rect, b: &Bin, v: &Vie
     if selected {
         ui.painter().rect_stroke(bg, 4.0, Stroke::new(1.5, t.accent), StrokeKind::Inside);
     }
-    ui.painter().rect_filled(th, 2.0, Color32::from_gray(26));
-    icons::paint(ui.painter(), Rect::from_center_size(th.center(), vec2(th.height() * 0.6, th.height() * 0.6)), Icon::Folder, BIN_COLOR);
+    ui.painter().rect_filled(th, 2.0, t.bin_tile_bg);
+    icons::paint(ui.painter(), Rect::from_center_size(th.center(), vec2(th.height() * 0.6, th.height() * 0.6)), Icon::Folder, app.tokens.bin_color);
     let mut n = Vec::new();
     b.all_items(&mut n);
     let f = font(app);

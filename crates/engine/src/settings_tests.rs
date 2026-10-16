@@ -215,6 +215,18 @@ fn v1_preferences_migrate_and_bad_values_are_repaired() {
 }
 
 #[test]
+fn shell_theme_defaults_to_following_the_shell_and_rejects_unknown_sources() {
+    let mut s = Session::default();
+    assert_eq!(s.prefs.appearance.shell_theme, "auto");
+    for source in ["dynamic", "static", "off", "auto"] {
+        set(&mut s, "appearance.shellTheme", json!(source));
+        assert_eq!(s.prefs.appearance.shell_theme, source);
+    }
+    assert!(s.execute("prefs.set", json!({"key": "appearance.shellTheme", "value": "neon"})).is_err());
+    assert_eq!(s.prefs.appearance.shell_theme, "auto");
+}
+
+#[test]
 fn prefs_set_validates_and_reset_works_per_category() {
     let mut s = Session::default();
     let e = s.execute("prefs.set", json!({"key": "timeline.autoScroll", "value": "sideways"})).unwrap_err().to_string();

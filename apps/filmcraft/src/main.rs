@@ -35,6 +35,7 @@ mod graphics;
 mod logging;
 #[cfg(target_os = "macos")]
 mod native_menu;
+mod shell_theme;
 mod window_raise;
 
 use args::{Cli, Launch};
@@ -316,6 +317,8 @@ fn app_creator(launch: Launch, graphics: graphics::GraphicsStart, created: Arc<A
         // Settings ▸ Appearance ▸ Appearance Mode ▸ Sync with system on Linux desktops whose
         // compositor reports no theme to winit (no polling: see appearance.rs).
         app.hooks.system_theme = appearance::service();
+        // Settings ▸ Appearance ▸ Shell Theme: tint the dark theme with the desktop shell's palette.
+        app.hooks.shell_palette = shell_theme::service();
         app.hooks.raise_without_focus = Some(Box::new(|| {
             window_raise::raise_without_focus();
         }));

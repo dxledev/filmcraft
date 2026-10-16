@@ -3485,6 +3485,10 @@
 	Next Appearance Mode	次の外観モード
 	Sync with system	システムと同期
 	UI Scale	UI のスケール
+	Shell Theme	シェルのテーマ
+	Follow the shell	シェルに合わせる
+	Dynamic palette	ダイナミックパレット
+	Static theme	固定テーマ
 	Auto (system)	自動 (システム)
 	Go to previous keyframe	前のキーフレームへ移動
 	Go to next keyframe	次のキーフレームへ移動
