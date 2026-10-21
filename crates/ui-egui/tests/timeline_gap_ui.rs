@@ -106,6 +106,36 @@ impl Driver {
 }
 
 #[test]
+fn split_here_uses_the_right_clicked_position_and_splits_linked_audio_with_one_undo() {
+    let (mut d, a, b) = Driver::two_clips();
+    d.harness.state_mut().session.set_playhead(filmcraft_time::Tick::ZERO);
+    let before = d.harness.state_mut().session.active_sequence().unwrap().clone();
+    d.ok("engine.execute", json!({"command": "timeline.select", "params": {"clips": [a.0, b.0]}}));
+    d.ok("ui.click", json!({"id": format!("timeline.clip.{}", a.0), "fx": 0.5, "button": "right"}));
+    d.frames(3);
+    assert!(d.rect("timeline.clipMenu.timeline.razor").is_some());
+    d.ok("ui.click", json!({"id": "timeline.clipMenu.timeline.razor"}));
+    d.frames(3);
+
+    let after = d.harness.state_mut().session.active_sequence().unwrap().clone();
+    let video = &after.video_tracks[0].items;
+    let audio = &after.audio_tracks[0].items;
+    assert_eq!((video.len(), audio.len()), (3, 3), "only the clicked clip and its linked audio split");
+    let cut = video[0].end();
+    let rate = after.settings.frame_rate;
+    assert!((cut.0 - rate.tick_of(24).0).abs() <= rate.frame_duration().0, "split at the right-click, not the playhead");
+    assert_eq!(cut, rate.snap_nearest(cut), "split on a frame boundary");
+    assert_eq!(audio[0].end(), cut);
+    assert_eq!((video[1].start, audio[1].start), (cut, cut));
+    assert_eq!((video[2].start, audio[2].start), (rate.tick_of(96), rate.tick_of(96)), "later selected clips stay put");
+    assert_eq!(d.harness.state_mut().session.playhead(), filmcraft_time::Tick::ZERO);
+
+    d.ok("engine.execute", json!({"command": "edit.undo", "params": {}}));
+    let restored = d.harness.state_mut().session.active_sequence().unwrap();
+    assert_eq!(serde_json::to_value(restored).unwrap(), serde_json::to_value(before).unwrap());
+}
+
+#[test]
 fn clicking_a_gap_selects_it_and_delete_closes_it() {
     let (mut d, a, b) = Driver::two_clips();
     let (f48, f96) = (d.frame(48), d.frame(96));

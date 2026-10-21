@@ -2028,6 +2028,7 @@ pub(crate) const CLIP_MENU: &[&[(&str, &str)]] = &[
     &[
         ("Cut", "edit.cut"),
         ("Copy", "edit.copy"),
+        ("Split Here", "timeline.razor"),
         ("Paste Attributes…", "edit.pasteAttributes"),
         ("Remove Attributes…", "edit.removeAttributes"),
         ("Clear", "edit.clear"),
@@ -2809,11 +2810,23 @@ fn interact(app: &mut FilmcraftApp, ui: &mut egui::Ui, seq: &Sequence, layout: &
     let edit_point_menu_id = egui::Id::new("timeline.editPointMenu.target");
     // the clip right-clicked, remembered while its menu is open: Unlink leaves only it selected
     let menu_clip_id = egui::Id::new("timeline.clipMenu.clip");
+    let menu_split_id = egui::Id::new("timeline.clipMenu.splitTarget");
     // right-clicking empty time between clips selects the gap and opens its menu (#648, #668)
     let gap_menu_id = egui::Id::new("timeline.gapMenu.open");
     if resp.secondary_clicked()
         && let Some(p) = resp.interact_pointer_pos()
     {
+        let split_target = match hit(seq, layout, p) {
+            Hit::Clip { clip, edge: None, track } => {
+                let time = rate.snap_nearest(layout.tick_at(p.x).max(Tick::ZERO));
+                seq.find_item(clip)
+                    .filter(|(_, it)| it.start < time && time < it.end())
+                    .filter(|_| seq.track(track).is_some_and(|tr| !tr.locked))
+                    .map(|_| (clip, time))
+            }
+            _ => None,
+        };
+        ctx.data_mut(|d| d.insert_temp(menu_split_id, split_target));
         let on_gap = match hit(seq, layout, p) {
             Hit::Empty { track } => app.session.execute("timeline.selectGap", json!({"track": track.0, "time": layout.tick_at(p.x).0})).is_ok(),
             _ => false,
@@ -2878,6 +2891,7 @@ fn interact(app: &mut FilmcraftApp, ui: &mut egui::Ui, seq: &Sequence, layout: &
         let picked: Vec<&filmcraft_project::TrackItem> = sel.iter().filter_map(|c| seq.find_item(*c).map(|(_, it)| it)).collect();
         let all_enabled = !picked.is_empty() && picked.iter().all(|it| it.enabled);
         let linked = picked.iter().any(|it| it.link.is_some());
+        let split_target = ctx.data(|d| d.get_temp::<Option<(ClipId, Tick)>>(menu_split_id)).flatten();
         let mut first = true;
         for group in CLIP_MENU {
             if !std::mem::take(&mut first) {
@@ -2911,10 +2925,17 @@ fn interact(app: &mut FilmcraftApp, ui: &mut egui::Ui, seq: &Sequence, layout: &
                     "clip.link" if linked => tl!("Unlink"),
                     _ => crate::i18n::t(label),
                 };
-                let r = ui.add_enabled(!sel.is_empty() && app.session.is_enabled(cmd), egui::Button::new(label));
+                let enabled = !sel.is_empty() && app.session.is_enabled(cmd) && (cmd != "timeline.razor" || split_target.is_some());
+                let r = ui.add_enabled(enabled, egui::Button::new(label));
                 app.auto.add(&format!("timeline.clipMenu.{cmd}"), r.rect, label);
                 if r.clicked() {
-                    match crate::menus::invoke(app, &ctx, cmd, json!({})) {
+                    let params = if cmd == "timeline.razor" {
+                        let Some((clip, time)) = split_target else { continue };
+                        json!({"clip": clip.0, "time": time.0})
+                    } else {
+                        json!({})
+                    };
+                    match crate::menus::invoke(app, &ctx, cmd, params) {
                         // Unlink (#220): the clips were selected together because they were linked;
                         // keep only the one right-clicked, so it can be dragged away from the others
                         Ok(v) if cmd == "clip.link" && v["linked"] == json!(false) => {
