@@ -114,6 +114,9 @@ pub struct AppearancePrefs {
     /// dynamic or static) | `dynamic` (the wallpaper-generated palette) | `static` (the chosen
     /// theme) | `off`.
     pub shell_theme: String,
+    /// "Animate zoom, scrolling and menus" (#2325): off, the Timeline zooms and scrolls in one
+    /// step and menus, collapsing sections and tooltips appear without a fade.
+    pub animations: bool,
 }
 
 impl Default for AppearancePrefs {
@@ -128,6 +131,7 @@ impl Default for AppearancePrefs {
             highlight_color: DEFAULT_HIGHLIGHT.into(),
             ui_scale: "auto".into(),
             shell_theme: "auto".into(),
+            animations: true,
         }
     }
 }
@@ -1061,6 +1065,7 @@ static CATEGORIES: &[Category] = &[
             f("appearance.highlightColor", "Highlight Color", Kind::Color, true),
             f("appearance.uiScale", "UI Scale", Kind::Choice(UI_SCALES), true),
             f("appearance.shellTheme", "Shell Theme", Kind::Choice(SHELL_THEMES), true),
+            b("appearance.animations", "Animate zoom, scrolling and menus", true),
         ],
     },
     Category {
