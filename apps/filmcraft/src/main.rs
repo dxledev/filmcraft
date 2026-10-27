@@ -445,11 +445,11 @@ fn agent_event_loop(agent: bool) -> Option<eframe::EventLoopBuilderHook> {
             b.with_activate_ignoring_other_apps(false);
         }));
     }
-    // winit has no file drag-and-drop on Wayland (only on X11), so dropping files from the file
-    // manager showed a "no" cursor. Run through XWayland when it's there; FILMCRAFT_WAYLAND=1
-    // keeps the native Wayland backend.
+    // XWayland is not scaled by the compositor, so the UI looks blurry on HiDPI/fractionally
+    // scaled Wayland sessions: use the native Wayland backend by default. winit has no file
+    // drag-and-drop on Wayland (only on X11), so FILMCRAFT_X11=1 opts back into XWayland for that.
     #[cfg(all(unix, not(target_os = "macos")))]
-    if std::env::var_os("DISPLAY").is_some() && std::env::var_os("FILMCRAFT_WAYLAND").is_none() {
+    if std::env::var_os("DISPLAY").is_some() && std::env::var_os("FILMCRAFT_X11").is_some() {
         return Some(Box::new(|b| {
             use winit::platform::x11::EventLoopBuilderExtX11;
             b.with_x11();

@@ -171,3 +171,7 @@ as PhotoCraft does with `cargo xtask corpus`.
   GitHub profiles). Never hand-edit `contributors.json`.
 - Maintainers refresh the stats with `python3 ../../craftrules/scripts/contributors.py .` (it also
   re-verifies who wrote each `people.toml` entry; `--check` only verifies).
+
+
+## Local patch to re-check after upstream merges (not upstream)
+This checkout patches `agent_event_loop` in `apps/filmcraft/src/main.rs` so native Wayland is the default; upstream forces XWayland (`with_x11()` when `DISPLAY` is set), which looks blurry on scaled Wayland. Ours uses X11 only when `DISPLAY` and `FILMCRAFT_X11` are both set. After any upstream merge run `grep -n "FILMCRAFT_X11\|FILMCRAFT_WAYLAND" apps/filmcraft/src/main.rs` and re-apply if it was reverted. Details: `CLAUDE.local.md`. Native Wayland has no file drag-and-drop (winit); `FILMCRAFT_X11=1` restores it.
