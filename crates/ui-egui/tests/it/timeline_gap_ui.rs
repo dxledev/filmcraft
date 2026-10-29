@@ -135,6 +135,30 @@ fn split_here_uses_the_right_clicked_position_and_splits_linked_audio_with_one_u
     assert_eq!(serde_json::to_value(restored).unwrap(), serde_json::to_value(before).unwrap());
 }
 
+/// Local patch (see CLAUDE.local.md): the menu split snaps to the playhead like the Razor tool,
+/// instead of landing a few pixels (several frames, when zoomed out) after the line.
+#[test]
+fn split_here_snaps_to_the_playhead_when_right_clicked_near_it() {
+    for offset in [7.0_f64, -7.0] {
+        let (mut d, a, _b) = Driver::two_clips();
+        let rate = d.harness.state_mut().session.sequence_rate();
+        let playhead = rate.tick_of(20);
+        d.harness.state_mut().session.set_playhead(playhead);
+        d.frames(3);
+        let ra = d.rect(&format!("timeline.clip.{}", a.0)).unwrap();
+        let ppf = ra[2] / 48.0;
+        // a click past or before the playhead line: over a frame away, inside the snap distance
+        assert!(offset.abs() / ppf > 1.0, "the click is over a frame from the playhead ({ppf} px/frame)");
+        let x = ra[0] + ppf * 20.0 + offset;
+        d.ok("ui.click", json!({"x": x, "y": ra[1] + ra[3] / 2.0, "button": "right"}));
+        d.frames(3);
+        d.ok("ui.click", json!({"id": "timeline.clipMenu.timeline.razor"}));
+        d.frames(3);
+        let after = d.harness.state_mut().session.active_sequence().unwrap().clone();
+        assert_eq!(after.video_tracks[0].items[0].end(), playhead, "split exactly at the playhead (click {offset} px)");
+    }
+}
+
 #[test]
 fn clicking_a_gap_selects_it_and_delete_closes_it() {
     let (mut d, a, b) = Driver::two_clips();
