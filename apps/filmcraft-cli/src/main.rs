@@ -195,7 +195,8 @@ impl Backend {
             // this process exits after the command, so a background export would never be written:
             // long commands wait unless the caller says otherwise (#2342)
             Backend::Local(s) => {
-                if filmcraft_automation::long_job::LONG_COMMANDS.contains(&id)
+                // mask tracking is applied when its job finishes, which this process never sees (#3302)
+                if (filmcraft_automation::long_job::LONG_COMMANDS.contains(&id) || id == "masks.track")
                     && let Some(p) = params.as_object_mut()
                 {
                     // anything but an explicit `false` (missing, null, a typo'd value) waits
@@ -507,6 +508,9 @@ async fn cli_export(a: &Args) {
         Ok(v) => {
             print(a, &v);
             let written = written_paths(&v, out).join(", ");
+            for warning in v.get("warnings").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+                diag(format_args!("filmcraft-cli: warning: {warning} (CLI: --range entire)"));
+            }
             check_offline(a, &offline_media(&v), &format!("export: {written}"));
             diag(format_args!("exported {written} in {:.1}s", t0.elapsed().as_secs_f64()));
         }
