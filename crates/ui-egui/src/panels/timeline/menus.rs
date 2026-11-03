@@ -36,6 +36,7 @@ pub(crate) const CLIP_MENU: &[&[(&str, &str)]] = &[
         ("Cut", "edit.cut"),
         ("Copy", "edit.copy"),
         ("Split Here", "timeline.razor"),
+        ("Split All Tracks Here", "sequence.addEditAllTracks"),
         ("Paste Attributes…", "edit.pasteAttributes"),
         ("Remove Attributes…", "edit.removeAttributes"),
         ("Clear", "edit.clear"),
