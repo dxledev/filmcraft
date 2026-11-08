@@ -249,3 +249,24 @@ fn volume_keyframes_on_the_timeline() {
     d.click(&format!("{id}.kf.0.delete"));
     assert_eq!(d.level(pair.audio).1, keys[1..]);
 }
+
+/// With several audio clips selected, dragging one's Volume line moves all of them by the same dB
+/// (their own levels stay apart), and the drag is one undo step.
+#[test]
+fn dragging_the_volume_line_moves_every_selected_audio_clip() {
+    let (mut d, pair) = Driver::demo(&[]);
+    let seq = d.exec("sequence.inspect", json!({}));
+    let other =
+        seq["audio"][0]["items"].as_array().unwrap().iter().map(|a| a["clip"].as_u64().unwrap()).find(|c| *c != pair.audio).expect("a second audio clip");
+    d.exec("effects.setParam", json!({"clip": other, "effect": "volume", "param": "level", "value": -9.0}));
+    d.exec("effects.setParam", json!({"clip": pair.audio, "effect": "volume", "param": "level", "value": -3.0}));
+    d.exec("timeline.select", json!({"clips": [pair.audio, other]}));
+    let line = d.rect(&format!("timeline.clip.{}.volume", pair.audio));
+    d.drag(centre(line), (0.0, -12.0));
+    let (a, b) = (d.level(pair.audio).0, d.level(other).0);
+    assert!(a > -3.0 + 1.0, "the dragged clip went up: {a}");
+    assert!(((a + 3.0) - (b + 9.0)).abs() < 1e-6, "both moved by the same dB: {a} {b}");
+    assert!(d.harness.state().session.state.selection.contains(&ClipId(other)), "the selection stays");
+    d.exec("edit.undo", json!({}));
+    assert_eq!((d.level(pair.audio).0, d.level(other).0), (-3.0, -9.0), "one undo step for both");
+}

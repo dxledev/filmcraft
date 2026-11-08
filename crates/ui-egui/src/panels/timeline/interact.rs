@@ -1267,11 +1267,16 @@ pub(super) fn interact(app: &mut FilmcraftApp, ui: &mut egui::Ui, seq: &Sequence
         let split_target = match hit(seq, layout, p) {
             Hit::Clip { clip, edge: None, track } => {
                 let raw = rate.snap_nearest(layout.tick_at(p.x).max(Tick::ZERO));
-                // snap like the Razor tool, so a right-click on the playhead line splits exactly there
-                // (a pixel is many frames when zoomed out); an edge snap would leave nothing to split
-                let snapped = rate.snap_nearest(snap(app, seq, layout, raw, &[]));
+                // Split Here cuts at the playhead whenever it is inside the clip, wherever the
+                // right-click landed; otherwise at the click, snapped like the Razor tool
                 let inside = |t: Tick| seq.find_item(clip).is_some_and(|(_, it)| it.start < t && t < it.end());
-                let time = if inside(snapped) { snapped } else { raw };
+                let playhead = rate.snap_nearest(app.session.playhead());
+                let time = if inside(playhead) {
+                    playhead
+                } else {
+                    let snapped = rate.snap_nearest(snap(app, seq, layout, raw, &[]));
+                    if inside(snapped) { snapped } else { raw }
+                };
                 seq.find_item(clip)
                     .filter(|(_, it)| it.start < time && time < it.end())
                     .filter(|_| seq.track(track).is_some_and(|tr| !tr.locked))

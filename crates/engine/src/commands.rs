@@ -2469,6 +2469,15 @@ fn build() -> Vec<CommandSpec> {
             has_selection,
             |s, p| crate::mixer::audio_gain(s, p)
         ),
+        cmd!(
+            "audio.adjustLevel",
+            "Adjust Audio Level",
+            [],
+            None,
+            r#"{"db":f64,"clips":[id]? (default: the selection and its linked clips; only audio clips change),"primary":id? (the clip being edited: when its Level is animated only the keyframe at the playhead changes),"merge":bool|key?,"begin":bool?}"#,
+            has_selection,
+            |s, p| crate::mixer::adjust_level(s, p)
+        ),
         query!("clip.audioPeak", "Audio Clip Peak Amplitude", r#"{"clips":[id]?}"#, |s, p| crate::mixer::audio_peak(s, p)),
         cmd!("clip.frameHold", "Add Frame Hold", ["Clip", "Video Options"], None, r#"{"clips":[id]?,"time":ticks?}"#, has_seq, |s, p| {
             crate::clip_ops::add_frame_hold(s, p)

@@ -1200,7 +1200,16 @@ pub fn properties_panel(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 }
             }
         }
-        if let Some((clip, it, _)) = clips.iter().find(|c| c.2 == TrackKind::Audio)
+        // the clip shown (or its linked audio); with audio clips selected next to a video clip, the
+        // first of those, so their Level can still be changed together
+        let audio_pick = clips.iter().find(|c| c.2 == TrackKind::Audio).cloned().or_else(|| {
+            let seq = app.session.active_sequence()?;
+            app.session.state.selection.iter().find_map(|c| {
+                let (tid, it) = seq.find_item(*c)?;
+                (seq.track(tid)?.kind == TrackKind::Audio).then(|| (*c, it.clone(), TrackKind::Audio))
+            })
+        });
+        if let Some((clip, it, _)) = audio_pick.as_ref()
             && section(bui, app, "Audio", it.effects.iter().position(|e| e.effect == "volume").map(|i| (i, clip.0)), &mut actions)
         {
             let clip = *clip;
@@ -1264,6 +1273,42 @@ pub(crate) fn row_fill(r: Rect) -> Rect {
     Rect::from_min_max(pos2(r.min.x + 1.0, r.min.y), r.max)
 }
 
+/// With several audio clips selected, a change to one clip's Volume ▸ Level moves all of them by
+/// the same number of dB (their own levels stay different): the edit becomes `audio.adjustLevel`
+/// with the difference between the new and the shown value. Any other action passes through.
+fn sync_level_edit(app: &FilmcraftApp, cmd: String, p: Value) -> (String, Value) {
+    let pass = |cmd: String, p: Value| (cmd, p);
+    if cmd != "effects.setParam" || p.get("param").and_then(Value::as_str) != Some("level") || p.get("keyframe").and_then(Value::as_bool) == Some(true) {
+        return pass(cmd, p);
+    }
+    let (Some(clip), Some(target)) = (p.get("clip").and_then(Value::as_u64), p.get("value").and_then(Value::as_f64)) else { return pass(cmd, p) };
+    let Some(seq) = app.session.active_sequence() else { return pass(cmd, p) };
+    let Some((_, it)) = seq.find_item(ClipId(clip)) else { return pass(cmd, p) };
+    let is_volume = match p.get("effect") {
+        Some(Value::String(id)) => id == "volume",
+        Some(Value::Number(n)) => n.as_u64().and_then(|i| it.effects.get(i as usize)).is_some_and(|e| e.effect == "volume"),
+        _ => false,
+    };
+    if !is_volume {
+        return pass(cmd, p);
+    }
+    let audio: Vec<u64> =
+        app.session.state.selection.iter().filter(|c| seq.audio_tracks.iter().any(|t| t.items.iter().any(|i| i.id == **c))).map(|c| c.0).collect();
+    if audio.len() < 2 || !audio.contains(&clip) {
+        return pass(cmd, p);
+    }
+    let ph = app.session.playhead();
+    let mt = it.effect_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+    let shown = it.effect("volume").map_or(0.0, |e| e.f64_at("level", mt));
+    let mut q = json!({"db": target - shown, "clips": audio, "primary": clip});
+    for k in ["merge", "begin"] {
+        if let Some(v) = p.get(k) {
+            q[k] = v.clone();
+        }
+    }
+    ("audio.adjustLevel".to_string(), q)
+}
+
 /// Run the panel's actions (also the Lumetri Color panel's). Parameter changes made
 /// while the mouse button is down (a drag) share one undo step, which the first change of each
 /// press begins (#201); typed values and clicks stay separate steps. A drag value only changes once
@@ -1277,8 +1322,9 @@ pub(crate) fn run(app: &mut FilmcraftApp, ctx: &egui::Context, actions: Vec<(Str
     let key = egui::Id::unique("effect-controls-drag-step");
     let begun = ctx.data(|d| d.get_temp::<Option<f64>>(key)).flatten();
     let mut wrote = false;
-    for (cmd, mut p) in actions {
-        if cmd == "effects.setParam" && down {
+    for (cmd, p) in actions {
+        let (cmd, mut p) = sync_level_edit(app, cmd, p);
+        if (cmd == "effects.setParam" || cmd == "audio.adjustLevel") && down {
             if p.get("merge").is_none() {
                 p["merge"] = json!(true);
             }
@@ -1667,6 +1713,43 @@ mod lane_tests {
         let ctx = egui::Context::default();
         crate::theme::install(&ctx, &Tokens::for_kind(Default::default()));
         ctx
+    }
+
+    fn level_edit(clip: u64, value: f64) -> (String, Value) {
+        ("effects.setParam".to_string(), json!({"clip": clip, "effect": "volume", "param": "level", "value": value, "merge": true, "begin": true}))
+    }
+
+    /// Changing the Level of one of several selected audio clips (alone or beside a video clip)
+    /// changes all of them by the same dB; one clip, or a clip outside the selection, is a plain edit.
+    #[test]
+    fn level_edit_with_several_audio_clips_selected_is_a_shared_db_change() {
+        let mut s = filmcraft_engine::Session::default();
+        s.execute("file.openDemoProject", json!({})).unwrap();
+        let audio: Vec<u64> = s.active_sequence().unwrap().audio_tracks[0].items.iter().take(2).map(|i| i.id.0).collect();
+        let video = s.active_sequence().unwrap().video_tracks[0].items[0].id.0;
+        s.execute("effects.setParam", json!({"clip": audio[0], "effect": "volume", "param": "level", "value": -4.0})).unwrap();
+        let mut app = crate::FilmcraftApp::new(s);
+        let (cmd, p) = level_edit(audio[0], -4.0);
+        app.session.execute("timeline.select", json!({"clips": [audio[0], audio[1]]})).unwrap();
+        let (c, q) = sync_level_edit(&app, cmd.clone(), p.clone());
+        assert_eq!(c, "audio.adjustLevel");
+        assert_eq!((q["db"].as_f64(), q["primary"].as_u64(), q["clips"].as_array().map(Vec::len)), (Some(0.0), Some(audio[0]), Some(2)));
+        let (c, q) = sync_level_edit(&app, cmd, level_edit(audio[0], -1.5).1);
+        assert_eq!((c.as_str(), q["db"].as_f64(), q["begin"].as_bool()), ("audio.adjustLevel", Some(2.5), Some(true)));
+        // a video clip beside the audio does not count
+        app.session.execute("timeline.select", json!({"clips": [video, audio[0], audio[1]]})).unwrap();
+        let (_, q) = sync_level_edit(&app, "effects.setParam".into(), level_edit(audio[1], -3.0).1);
+        assert_eq!(q["clips"].as_array().map(|a| a.iter().all(|c| c.as_u64() != Some(video))), Some(true));
+        // one audio clip selected: a plain edit
+        app.session.execute("timeline.select", json!({"clips": [video, audio[0]]})).unwrap();
+        assert_eq!(sync_level_edit(&app, "effects.setParam".into(), level_edit(audio[0], -1.5).1).0, "effects.setParam");
+        // other parameters and keyframe writes pass through
+        app.session.execute("timeline.select", json!({"clips": [audio[0], audio[1]]})).unwrap();
+        let mut keyed = level_edit(audio[0], -1.5).1;
+        keyed["keyframe"] = json!(true);
+        assert_eq!(sync_level_edit(&app, "effects.setParam".into(), keyed).0, "effects.setParam");
+        let pan = json!({"clip": audio[0], "effect": "panner", "param": "balance", "value": 10.0});
+        assert_eq!(sync_level_edit(&app, "effects.setParam".into(), pan).0, "effects.setParam");
     }
 
     /// A project file is only checked for overflow, so a damaged one can carry a clip with no

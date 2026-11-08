@@ -154,16 +154,23 @@ pub fn start(seq: &Sequence, layout: &Layout, clip: ClipId, at: Pos2) -> Option<
 pub fn drag(app: &mut FilmcraftApp, ui: &egui::Ui, seq: &Sequence, layout: &Layout, mut d: LineDrag, y: f32) -> LineDrag {
     let Some((r, it)) = find(seq, layout, d.clip) else { return d };
     let db = pos_to_db(db_to_pos(d.from) + (d.y - y) / band(body(layout, r, it)).height().max(1.0));
-    tip(ui, db);
+    // the dragged clip is one of several selected audio clips: they all move by the dB it moves
+    let selected: Vec<u64> =
+        app.session.state.selection.iter().filter(|c| seq.audio_tracks.iter().any(|t| t.items.iter().any(|i| i.id == **c))).map(|c| c.0).collect();
+    let together = selected.len() > 1 && selected.contains(&d.clip.0);
+    tip(ui, db, together.then_some((selected.len(), db - d.from)));
     if d.last == Some(db) {
         return d;
     }
     let begin = d.last.is_none();
     let mut acts = Vec::new();
-    if d.keys.iter().all(Option::is_none) {
+    if together {
+        let step = db - d.last.unwrap_or(d.from);
+        acts.push(("audio.adjustLevel", json!({"db": step, "clips": selected, "merge": true, "begin": begin})));
+    } else if d.keys.iter().all(Option::is_none) {
         acts.push(("effects.setParam", json!({"clip": d.clip.0, "effect": "volume", "param": "level", "value": db, "merge": true, "begin": begin})));
     }
-    for (n, (m, v)) in d.keys.iter().flatten().enumerate() {
+    for (n, (m, v)) in d.keys.iter().flatten().enumerate().filter(|_| !together) {
         let v = (v + db - d.from).clamp(FADER_MIN_DB, FADER_MAX_DB);
         let p = json!({"clip": d.clip.0, "effect": "volume", "param": "level", "mediaTime": m.0, "value": v, "merge": true, "begin": begin && n == 0});
         acts.push(("effects.setKeyframe", p));
@@ -189,8 +196,13 @@ fn run(app: &mut FilmcraftApp, acts: Vec<(&str, Value)>) {
 }
 
 /// The level next to the pointer while dragging: one line, always as wide, so it does not jump.
-fn tip(ui: &egui::Ui, db: f64) {
-    let text = if db <= FADER_MIN_DB { format!("{:>7} dB", "-∞") } else { format!("{db:>+7.2} dB") };
+/// With several clips moving together (`together`: how many, and the dB added or removed since the
+/// press) it says so, as the level shown is only the dragged clip's.
+fn tip(ui: &egui::Ui, db: f64, together: Option<(usize, f64)>) {
+    let mut text = if db <= FADER_MIN_DB { format!("{:>7} dB", "-∞") } else { format!("{db:>+7.2} dB") };
+    if let Some((n, delta)) = together {
+        text.push_str(&format!("\n{n} clips {delta:>+6.2} dB"));
+    }
     egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), egui::Id::unique("tl-volume-tip"), egui::PopupAnchor::Pointer).show(|ui| {
         ui.add(egui::Label::new(egui::RichText::new(text).font(Tokens::mono(12.0))).wrap_mode(egui::TextWrapMode::Extend));
     });
@@ -295,7 +307,7 @@ pub fn interact(app: &mut FilmcraftApp, ui: &mut egui::Ui, seq: &Sequence, layou
                         acts.push(("effects.moveKeyframe", p));
                         next = Some(KeyDrag { begun: true, ..h });
                     }
-                    tip(ui, db);
+                    tip(ui, db, None);
                 }
                 resp.context_menu(|ui| {
                     let b = ui.button(tl!("Delete"));

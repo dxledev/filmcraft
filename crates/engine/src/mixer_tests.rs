@@ -620,3 +620,81 @@ fn audio_transition_schema_lists_edge_params_and_reverse() {
         assert!(params.contains(key), "schema `{params}` is missing {key}");
     }
 }
+
+fn level(s: &Session, c: filmcraft_project::ClipId) -> f64 {
+    let it = s.active_sequence().unwrap().find_item(c).unwrap().1;
+    it.effect("volume").map_or(0.0, |e| e.f64_at("level", Tick(0)))
+}
+
+/// With several audio clips selected the Level moves by the same dB on each: the levels stay
+/// different, the amount added or removed is shared.
+#[test]
+fn adjust_level_shifts_every_selected_audio_clip_by_the_same_db() {
+    let mut s = demo();
+    let ids: Vec<filmcraft_project::ClipId> = a1(&s).items.iter().take(2).map(|i| i.id).collect();
+    s.execute("effects.setParam", json!({"clip": ids[0].0, "effect": "volume", "param": "level", "value": -3.0})).unwrap();
+    s.execute("effects.setParam", json!({"clip": ids[1].0, "effect": "volume", "param": "level", "value": -10.0})).unwrap();
+    s.execute("timeline.select", json!({"clips": [ids[0].0, ids[1].0]})).unwrap();
+    s.execute("audio.adjustLevel", json!({"db": 2.0, "primary": ids[0].0})).unwrap();
+    assert_eq!((level(&s, ids[0]), level(&s, ids[1])), (-1.0, -8.0));
+    s.execute("audio.adjustLevel", json!({"db": -4.5})).unwrap();
+    assert_eq!((level(&s, ids[0]), level(&s, ids[1])), (-5.5, -12.5));
+    assert!(s.execute("audio.adjustLevel", json!({"db": f64::NAN})).is_err());
+}
+
+/// A clip at its limit stops there; the others still move, and nothing fails.
+#[test]
+fn adjust_level_clamps_per_clip_instead_of_failing() {
+    let mut s = demo();
+    let ids: Vec<filmcraft_project::ClipId> = a1(&s).items.iter().take(2).map(|i| i.id).collect();
+    s.execute("effects.setParam", json!({"clip": ids[0].0, "effect": "volume", "param": "level", "value": 14.0})).unwrap();
+    s.execute("effects.setParam", json!({"clip": ids[1].0, "effect": "volume", "param": "level", "value": 0.0})).unwrap();
+    s.execute("timeline.select", json!({"clips": [ids[0].0, ids[1].0]})).unwrap();
+    s.execute("audio.adjustLevel", json!({"db": 5.0})).unwrap();
+    assert_eq!((level(&s, ids[0]), level(&s, ids[1])), (15.0, 5.0));
+}
+
+/// Video clips in the selection are left alone; a keyframed Level shifts as a whole on the other
+/// clips and at the playhead on the clip being edited.
+#[test]
+fn adjust_level_ignores_video_and_shifts_keyframes() {
+    let mut s = demo();
+    let ids: Vec<filmcraft_project::ClipId> = a1(&s).items.iter().take(2).map(|i| i.id).collect();
+    let video = s.active_sequence().unwrap().video_tracks[0].items[0].id;
+    for (c, t, v) in [(ids[1], 0.0, -6.0), (ids[1], 1.0, -12.0)] {
+        s.execute("effects.setParam", json!({"clip": c.0, "effect": "volume", "param": "level", "value": v, "time": sec(t), "keyframe": true})).unwrap();
+    }
+    s.execute("timeline.select", json!({"clips": [video.0, ids[0].0, ids[1].0]})).unwrap();
+    s.execute("audio.adjustLevel", json!({"db": 3.0, "clips": [ids[0].0, ids[1].0, video.0]})).unwrap();
+    let keys: Vec<f64> = s
+        .active_sequence()
+        .unwrap()
+        .find_item(ids[1])
+        .unwrap()
+        .1
+        .effect("volume")
+        .unwrap()
+        .param("level")
+        .unwrap()
+        .keyframes
+        .iter()
+        .filter_map(|k| k.value.as_f64())
+        .collect();
+    assert_eq!(keys, [-3.0, -9.0]);
+    assert!(s.active_sequence().unwrap().find_item(video).unwrap().1.effect("volume").is_none());
+}
+
+/// A drag of the field is one undo step for all the clips.
+#[test]
+fn adjust_level_drag_is_one_undo_step() {
+    let mut s = demo();
+    let ids: Vec<filmcraft_project::ClipId> = a1(&s).items.iter().take(2).map(|i| i.id).collect();
+    s.execute("timeline.select", json!({"clips": [ids[0].0, ids[1].0]})).unwrap();
+    let (a, b) = (level(&s, ids[0]), level(&s, ids[1]));
+    for (i, db) in [1.0, 1.0, 0.5].into_iter().enumerate() {
+        s.execute("audio.adjustLevel", json!({"db": db, "merge": true, "begin": i == 0})).unwrap();
+    }
+    assert_eq!((level(&s, ids[0]), level(&s, ids[1])), (a + 2.5, b + 2.5));
+    s.undo();
+    assert_eq!((level(&s, ids[0]), level(&s, ids[1])), (a, b));
+}

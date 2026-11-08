@@ -139,7 +139,7 @@ fn split_here_uses_the_right_clicked_position_and_splits_linked_audio_with_one_u
 /// instead of landing a few pixels (several frames, when zoomed out) after the line.
 #[test]
 fn split_here_snaps_to_the_playhead_when_right_clicked_near_it() {
-    for offset in [7.0_f64, -7.0] {
+    for offset in [7.0_f64, -7.0, 60.0, -60.0] {
         let (mut d, a, _b) = Driver::two_clips();
         let rate = d.harness.state_mut().session.sequence_rate();
         let playhead = rate.tick_of(20);
@@ -147,7 +147,7 @@ fn split_here_snaps_to_the_playhead_when_right_clicked_near_it() {
         d.frames(3);
         let ra = d.rect(&format!("timeline.clip.{}", a.0)).unwrap();
         let ppf = ra[2] / 48.0;
-        // a click past or before the playhead line: over a frame away, inside the snap distance
+        // a click past or before the playhead line: over a frame away, near it or far from it
         assert!(offset.abs() / ppf > 1.0, "the click is over a frame from the playhead ({ppf} px/frame)");
         let x = ra[0] + ppf * 20.0 + offset;
         d.ok("ui.click", json!({"x": x, "y": ra[1] + ra[3] / 2.0, "button": "right"}));

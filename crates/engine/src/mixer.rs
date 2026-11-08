@@ -1196,6 +1196,69 @@ pub fn audio_gain(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"mode": mode, "clips": applied.len(), "gainDb": applied.iter().map(|(c, g)| json!({"clip": c.0, "gainDb": g})).collect::<Vec<_>>()}))
 }
 
+/// `audio.adjustLevel`: change the Volume ▸ Level of every selected audio clip by the same number
+/// of dB. The clips keep their own levels; only the amount added or removed is shared, so a drag of
+/// the Level field with several audio clips selected moves them together. `primary` is the clip
+/// whose field is being edited: when its Level is animated the change lands on the keyframe at the
+/// playhead, like a single-clip edit; every other clip's keyframes all shift by `db`. Each level is
+/// clamped to the parameter's range instead of failing, so one clip at its limit does not stop the
+/// rest. The whole change (and every step of a `merge` drag) is one undo step.
+pub fn adjust_level(s: &mut Session, p: &Value) -> Result<Value> {
+    let db = f64_p(p, "db").filter(|d| d.is_finite()).ok_or_else(|| bad("audio.adjustLevel", "need a finite `db`"))?;
+    let primary = p.get("primary").and_then(Value::as_u64).map(filmcraft_project::ClipId);
+    let clips = gain_targets(s, p);
+    let audio: Vec<filmcraft_project::ClipId> = {
+        let seq = active_seq(s)?;
+        clips.into_iter().filter(|c| seq.audio_tracks.iter().any(|t| t.items.iter().any(|i| i.id == *c))).collect()
+    };
+    if audio.is_empty() {
+        return Err(bad("audio.adjustLevel", "no audio clips in the selection"));
+    }
+    let ph = s.playhead();
+    let merge = match p.get("merge") {
+        Some(Value::String(k)) => Some(format!("adjustLevel:{k}")),
+        _ => bool_p(p, "merge").unwrap_or(false).then(|| "adjustLevel".to_string()),
+    };
+    if bool_p(p, "begin").unwrap_or(false) {
+        s.history.merge_key = None;
+    }
+    let (min, max) = filmcraft_project::find_effect("volume")
+        .and_then(|d| d.param("level"))
+        .and_then(|d| match d.kind {
+            filmcraft_project::ParamKind::Float { min, max, .. } => Some((min, max)),
+            _ => None,
+        })
+        .unwrap_or((-287.5, 15.0));
+    let applied = s.edit_sequence_as("Adjust Level", merge.as_deref(), move |q, _, _| {
+        let mut applied = Vec::new();
+        for t in q.audio_tracks.iter_mut() {
+            for i in t.items.iter_mut().filter(|i| audio.contains(&i.id)) {
+                let mt = i.effect_time_at(ph.clamp(i.start, (i.end() - filmcraft_time::Tick(1)).max(i.start)));
+                if i.effect("volume").is_none()
+                    && let Some(d) = filmcraft_project::find_effect("volume")
+                {
+                    i.effects.push(d.instance());
+                }
+                let id = i.id;
+                let Some(prm) = i.effect_mut("volume").and_then(|e| e.param_mut("level")) else { continue };
+                let shift = |v: ParamValue| match v {
+                    ParamValue::Float(x) => ParamValue::Float((x + db).clamp(min, max)),
+                    other => other,
+                };
+                if prm.is_animated() && Some(id) == primary {
+                    let now = prm.value_at(mt);
+                    prm.set_at(mt, shift(now));
+                } else {
+                    prm.map_values(shift);
+                }
+                applied.push((id, prm.f64_at(mt)));
+            }
+        }
+        Ok(applied)
+    })?;
+    Ok(json!({"clips": applied.len(), "levelDb": applied.iter().map(|(c, g)| json!({"clip": c.0, "levelDb": g})).collect::<Vec<_>>()}))
+}
+
 /// Effects panel ▸ Set Selected as Default Transition (video or audio, from the effect's kind).
 fn set_default_transition(s: &mut Session, p: &Value) -> Result<Value> {
     let id = str_p(p, "effect").ok_or_else(|| bad("effects.setDefaultTransition", "need `effect`"))?;
