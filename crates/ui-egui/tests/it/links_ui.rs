@@ -90,7 +90,7 @@ fn community_links_everywhere() {
     for (id, label, _) in links::ALL {
         assert!(text.contains(id) && text.contains(label), "Help menu lists {id}");
     }
-    // Header: the Discord button is always there.
+    // Header: the Discord button is visible when there is room.
     assert_eq!(d.ids("header.discord"), vec!["header.discord".to_string()]);
     d.snapshot("header");
     // About dialog: Discord first, then website, app page, GitHub, issues.
@@ -112,4 +112,69 @@ fn community_links_everywhere() {
         assert!(home.iter().any(|a| a == id), "{id} in {home:?}");
     }
     d.snapshot("home");
+}
+
+#[test]
+fn header_controls_do_not_overlap_menus_when_resized() {
+    let mut d = Driver::demo();
+    let mut previous = Vec::new();
+    let mut intermediate_counts = std::collections::BTreeSet::new();
+    for width in (800..=1600).step_by(20) {
+        let width = width as f32;
+        d.harness.set_size(egui::vec2(width, 980.0));
+        d.frames(4);
+        let menus = d.ok("ui.elements", json!({"prefix": "menu."}));
+        let header = d.ok("ui.elements", json!({"prefix": "header."}));
+        let menus = menus.as_array().unwrap();
+        let header = header.as_array().unwrap();
+        let right_ids = [
+            "header.discord",
+            "header.workspaceName",
+            "header.workspaces",
+            "header.appearance",
+            "header.quickExport",
+            "header.notifications",
+            "header.search",
+            "header.volume",
+            "header.fullscreen",
+        ];
+        let priority = [
+            "header.workspaces",
+            "header.search",
+            "header.quickExport",
+            "header.notifications",
+            "header.fullscreen",
+            "header.volume",
+            "header.appearance",
+            "header.workspaceName",
+            "header.discord",
+        ];
+        let visible: Vec<_> = priority.iter().filter(|id| header.iter().any(|e| e["id"] == **id)).copied().collect();
+        if width == 960.0 {
+            assert!(!visible.is_empty() && visible.len() < priority.len(), "half width should retain some controls: {visible:?}");
+        }
+        assert_eq!(visible, priority[..visible.len()], "priority at width {width}");
+        assert!(previous.iter().all(|id| visible.contains(id)), "controls disappeared while widening at {width}");
+        if !visible.is_empty() && visible.len() < priority.len() {
+            intermediate_counts.insert(visible.len());
+        }
+        previous = visible;
+        let controls: Vec<_> = header.iter().filter(|e| right_ids.contains(&e["id"].as_str().unwrap_or(""))).collect();
+        for (index, control) in controls.iter().enumerate() {
+            let left = control["rect"][0].as_f64().unwrap();
+            let right = left + control["rect"][2].as_f64().unwrap();
+            for other in controls.iter().skip(index + 1) {
+                let other_left = other["rect"][0].as_f64().unwrap();
+                let other_right = other_left + other["rect"][2].as_f64().unwrap();
+                assert!(right <= other_left || other_right <= left, "width {width}: {control} overlaps {other}");
+            }
+            for menu in menus {
+                let rect = &menu["rect"];
+                let right = rect[0].as_f64().unwrap() + rect[2].as_f64().unwrap();
+                assert!(left >= right, "width {width}: {control} overlaps {menu}");
+            }
+        }
+    }
+    assert!(intermediate_counts.len() >= 3, "controls should disappear individually");
+    assert_eq!(previous.len(), 9, "all controls return at full width");
 }

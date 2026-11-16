@@ -87,6 +87,8 @@ FilmCraft is a professional non-linear editor: familiar panels, workspaces, tool
 
 **A timeline you already know.** Source and Program monitors, bins with thumbnails, a multi-track timeline with patch and target buttons, sync locks and linked selection. The Editing, Assembly, Color, Effects and Audio workspaces are all there, and every panel docks wherever you want it.
 
+**Responsive header.** When the window narrows, the header hides right-side controls individually before they overlap the menus, keeping editing controls available longest. From first hidden to last: Discord, workspace name, appearance, volume, fullscreen, progress, Quick Export, Effects search and workspace selection. The controls return as space allows. Preserve this behavior and its resize regression test in `crates/ui-egui/tests/it/links_ui.rs` when merging changes to the header.
+
 - **Three-point editing.** Mark In and Out in the Source monitor, then insert (`,`) or overwrite (`.`) onto the patched tracks. Lift (`;`) and extract (`'`) take ranges back out.
 - **Every trim.** Ripple, roll, slip, slide, rate stretch and razor tools. Trim mode selects edit points as ripple, roll or trim, nudges them a frame at a time (`⌥←` `⌥→`, ×5 with `⇧`), toggles the trim type with `⌃T` and extends them to the playhead with `E`. `Q` and `W` ripple-trim to the playhead. The **Trim Monitor** shows both sides of the edit, and **dynamic trimming** trims live while it plays: `L` forward, `J` back, `K` to stop and commit as one undo step.
 - **Exact time.** Every edit is computed on integer ticks: 254,016,000,000 per second, which divides evenly by every common frame rate and sample rate. 23.976, 29.97 drop-frame and 59.94 are exact, not approximate.
